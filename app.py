@@ -1,9 +1,4 @@
-#####################################
-# name: app.py                      #
-# purpose: Kims Movielist task      #
-# started on 2020/09/10             #
-#####################################
-
+# import flask, redirect and template rendering functionality
 from flask import Flask, redirect, render_template
 
 # used for api calls and caching
@@ -23,6 +18,9 @@ app.config['SERVER_NAME'] = 'localhost:8000'
 requests_cache.install_cache(
     cache_name='movies_cache', backend='memory', expire_after=60)
 
+# set base url for Ghibli REST API requests
+API_BASE_URL = 'https://ghibliapi.herokuapp.com/'
+
 
 # redirect to /movies page. no content on index
 @app.route("/")
@@ -41,17 +39,13 @@ def movies():
     # check if any of the functions threw an error.
     if movies == None or people == None:
         print("Something went wrong. check previous output.")
-        exit(1)
+        return "No data found", 400
 
     # iterate over movies and people
     for movie in movies:
-        for person in people:
 
-            # check if movie id exists in a persons film IDs
-            if movie['id'] in person['films']:
-
-                # add name of person to this movies list of people
-                movie['people'].append(person['name'])
+        movie['people'] = [person['name']
+                           for person in people if movie['id'] in person['films']]
 
     # render template and hand over movie list of dictionaries
     return render_template("movies.html", movies=movies)
@@ -59,63 +53,53 @@ def movies():
 
 def getMovies():
 
-    # call the API, on error print exception message and return None
-    try:
-        response = requests.get('https://ghibliapi.herokuapp.com/films')
-    except requests.exceptions.RequestException as err:
-        print(f"Error: {err}")
-        return None
+    # call the API
+    movies_json = callAPI('films')
 
-    # initialize movie list
-    movies = []
-
-    # fill movies with required data for each movie. Add empty list for people
-    for movie in response.json():
-        movie_data = {
-            "id":       movie['id'],
-            "title":    movie['title'],
-            "people":   []
-        }
-        movies.append(movie_data)
-
-    # return list of dictionaries
-    return movies
+    # return list of dictionaries containing only id, title and empty people list for each movie
+    return [{"id": movie['id'], "title": movie['title'], "people": []} for movie in movies_json]
 
 
 def getPeople():
 
-    # call the API, on error print exception message and return None
-    try:
-        resonse = requests.get('https://ghibliapi.herokuapp.com/people')
-    except requests.exceptions.RequestException as err:
-        print(f"Error: {err}")
-        return None
+    # call API for all people
+    people_json = callAPI('people')
 
     # initialize people list
     people = []
 
     # fill people list with data
-    for person in resonse.json():
+    for person in people_json:
 
-        # create new list to hold persons film IDs for later check
-        person_films = []
+        # set regex pattern
+        re_pattern = r'(?<=films\/).*$'
 
-        # scrape ID out of URL via regex searchs catchgroup and append to persons film list
-        for film in person['films']:
-            film_id = re.search(r'(?<=films\/).*$', film)
-            person_films.append((film_id.group()))
+        # get film ids via regex pattern out of every persons films
+        # API data contains a URL to each film, we only need the id for comparison
+        person_films = [re.search(re_pattern, film).group()
+                        for film in person['films']]
 
-        # populate person dictionary
-        person_data = {
+        # populate person dictionary and append to people list
+        people.append({
             "id":       person['id'],
             "name":     person['name'],
             "films":    person_films
-        }
-
-        # append dict to people list
-        people.append(person_data)
+        })
 
     return people
+
+
+# make GET request to Ghibli Api on given endpoint
+def callAPI(endpoint):
+
+    # call the API, on error print exception message and return None
+    try:
+        response = requests.get(API_BASE_URL + endpoint)
+    except requests.exceptions.RequestException as err:
+        print(f"Error: {err}")
+        return None
+
+    return response.json()
 
 
 # starting point
